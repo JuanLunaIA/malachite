@@ -1,0 +1,50 @@
+name: T-1 Propagation Witness
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-propagation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: 2
+      RUSTFLAGS: -C debuginfo=1 -C codegen-units=1
+      CARGO_INCREMENTAL: "0"
+
+    steps:
+      - name: Checkout malachite
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-prop-cargo-${{ hashFiles('code/Cargo.lock') }}
+
+      - name: Run real-panic propagation witness
+        run: |
+          set -o pipefail
+          cd code
+          cargo test -p arc-malachitebft-engine child_panic_stops_node --release -- --nocapture --test-threads=1 2>&1 | tee /tmp/prop_output.txt
+
+      - name: Show result
+        if: always()
+        run: |
+          echo "--- captured ---"
+          grep -E "child_panic_stops_node|panicked at|unreachable|test result" /tmp/prop_output.txt || true
+
+      - name: Upload captured output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t1-propagation-output
+          path: /tmp/prop_output.txt
