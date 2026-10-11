@@ -1041,13 +1041,18 @@ mod tests {
     // this mode prevotes a value its application never validated.
     #[test]
     fn value_payload_accepts_proposal_only_from_config() {
-        let p: ValuePayload = toml::from_str("\"proposal-only\"").unwrap();
-        assert_eq!(p, ValuePayload::ProposalOnly);
-        assert!(!p.include_parts());
+        #[derive(serde::Deserialize)]
+        struct W {
+            value_payload: ValuePayload,
+        }
 
-        let d: ValuePayload = toml::from_str("\"proposal-and-parts\"").unwrap();
-        assert_eq!(d, ValuePayload::ProposalAndParts);
-        assert!(d.include_parts());
+        let p: W = toml::from_str("value_payload = \"proposal-only\"").unwrap();
+        assert_eq!(p.value_payload, ValuePayload::ProposalOnly);
+        assert!(!p.value_payload.include_parts());
+
+        let d: W = toml::from_str("value_payload = \"proposal-and-parts\"").unwrap();
+        assert_eq!(d.value_payload, ValuePayload::ProposalAndParts);
+        assert!(d.value_payload.include_parts());
     }
 
     #[test]
