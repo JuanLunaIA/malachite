@@ -1,0 +1,38 @@
+name: ProposalOnly consensus probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: {toolchain: stable}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-probe-${{ hashFiles('code/Cargo.lock') }}
+      - name: Build
+        run: cd code && cargo test -p arc-malachitebft-test --test it --release --no-run 2>&1 | tail -5
+      - name: Run n3f0 proposal_only
+        run: |
+          cd code
+          set +e
+          timeout 600 cargo test -p arc-malachitebft-test --test it --release -- --test-threads=1 proposal_only 2>&1 | tee /tmp/probe.txt
+          echo "EXIT=${PIPESTATUS[0]}" | tee -a /tmp/probe.txt
+      - name: Summarize
+        if: always()
+        run: grep -E "test result:|FAILED|panicked at|EXIT=|timeout" /tmp/probe.txt | tail -40 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: proposalonly-probe, path: /tmp/probe.txt}
