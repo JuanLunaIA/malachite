@@ -1,0 +1,57 @@
+name: Malachite Adversarial Consensus Suite
+
+on:
+  workflow_dispatch:
+
+jobs:
+  it:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: 2
+      RUSTFLAGS: -C debuginfo=0 -C codegen-units=1
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+
+    steps:
+      - name: Checkout malachite
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-it-cargo-${{ hashFiles('code/Cargo.lock') }}
+
+      - name: Build the integration test suite
+        run: |
+          cd code
+          cargo test -p arc-malachitebft-test --test it --release --no-run 2>&1 | tail -25
+
+      - name: Run the adversarial multi-node suite
+        run: |
+          cd code
+          set +e
+          cargo test -p arc-malachitebft-test --test it --release -- --test-threads=1 2>&1 | tee /tmp/it_output.txt
+          echo "EXIT=${PIPESTATUS[0]}" | tee -a /tmp/it_output.txt
+
+      - name: Summarize
+        if: always()
+        run: |
+          echo "=== failing/passing summary ==="
+          grep -E "test result:|FAILED|panicked at|EXIT=" /tmp/it_output.txt | tail -80 || true
+
+      - name: Upload suite output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adversarial-suite-output
+          path: /tmp/it_output.txt
