@@ -423,4 +423,83 @@ mod tests {
 
         node.stop(None);
     }
+
+    /// T-1 propagation witness (real panic, not `Err`).
+    ///
+    /// The consensus actor's `ArcSigningProvider::sign_vote_extension` /
+    /// `verify_signed_vote_extension` arms call `unreachable!()`, i.e. they
+    /// PANIC rather than return `Err`. The existing `child_failure_stops_node_*`
+    /// tests only exercise the `Err` path. This test proves that a genuine
+    /// `panic!()` inside a linked child is captured by ractor into
+    /// `SupervisionEvent::ActorFailed` and drives the Node's liveness stop
+    /// exactly like the `Err` path — so arming the vote-extension policy would
+    /// stop the Node, not merely log.
+    struct PanickingChild;
+
+    #[derive(Debug)]
+    enum PanickingChildMsg {
+        Boom,
+    }
+
+    #[async_trait]
+    impl Actor for PanickingChild {
+        type Msg = PanickingChildMsg;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _args: (),
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            msg: Self::Msg,
+            _state: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            match msg {
+                // Faithful stand-in for ArcSigningProvider's unreachable!() arm.
+                PanickingChildMsg::Boom => unreachable!(
+                    "Vote extensions are not supported in Arc at the moment"
+                ),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn child_panic_stops_node() {
+        let registry = SharedRegistry::new(Default::default(), None);
+        let metrics = Metrics::register(&registry);
+
+        let (node_ref, _) = Node::new(metrics.clone(), tracing::Span::current())
+            .spawn()
+            .await
+            .expect("spawn Node");
+
+        let (child_ref, _) = Actor::spawn(None, PanickingChild, ())
+            .await
+            .expect("spawn PanickingChild");
+        child_ref.link(node_ref.get_cell());
+
+        child_ref
+            .cast(PanickingChildMsg::Boom)
+            .expect("cast Boom");
+
+        // Panic must surface as ActorFailed and stop the Node (liveness path).
+        node_ref
+            .wait(Some(Duration::from_secs(3)))
+            .await
+            .expect("Node must stop after a linked child panics");
+
+        // Liveness path, not safety-hang: gauge stays 0.
+        assert_eq!(
+            metrics.node_safety_failure.get(),
+            0,
+            "panic-driven liveness failure must not flip node_safety_failure"
+        );
+    }
 }
