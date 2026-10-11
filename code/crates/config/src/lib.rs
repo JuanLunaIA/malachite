@@ -1032,6 +1032,24 @@ impl fmt::Display for LogFormat {
 mod tests {
     use super::*;
 
+    // Reachability witness for `ValuePayload::ProposalOnly` (the config-side name is
+    // `"proposal-only"`; the enum uses `#[serde(rename_all = "kebab-case")]`). Selecting this
+    // mode makes `core-consensus/src/handle/proposal.rs:161-173` store the proposed value with
+    // `validity: Validity::Valid` hardcoded -- that site carries a TODO stating host validation
+    // ("pass the received value up to the host that will verify and give back validity") is not
+    // wired. `core-driver/src/mux.rs:112,407-417` gate the prevote on that validity, so a node in
+    // this mode prevotes a value its application never validated.
+    #[test]
+    fn value_payload_accepts_proposal_only_from_config() {
+        let p: ValuePayload = toml::from_str("\"proposal-only\"").unwrap();
+        assert_eq!(p, ValuePayload::ProposalOnly);
+        assert!(!p.include_parts());
+
+        let d: ValuePayload = toml::from_str("\"proposal-and-parts\"").unwrap();
+        assert_eq!(d, ValuePayload::ProposalAndParts);
+        assert!(d.include_parts());
+    }
+
     #[test]
     fn discovery_config_deserializes_without_max_peers_per_response() {
         // Configs written before this field was added should still deserialize,
