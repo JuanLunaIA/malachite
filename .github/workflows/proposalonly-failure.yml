@@ -1,0 +1,37 @@
+name: ProposalOnly failure detail
+
+on:
+  workflow_dispatch:
+
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "info"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: {toolchain: stable}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-probe-${{ hashFiles('code/Cargo.lock') }}
+      - name: Run with nocapture
+        run: |
+          cd code
+          set +e
+          timeout 300 cargo test -p arc-malachitebft-test --test it --release -- --test-threads=1 --nocapture proposal_only > /tmp/full.txt 2>&1
+          echo "EXIT=$?" | tee -a /tmp/full.txt
+      - name: Tail
+        if: always()
+        run: tail -c 12000 /tmp/full.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: proposalonly-failure, path: /tmp/full.txt}
